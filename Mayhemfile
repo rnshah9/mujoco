@@ -1,0 +1,5 @@
+project: mujoco
+target: compile
+cmds:
+  - cmd: /repo/build/bin/compile /test.xml out.mjb
+    filepath: /test.xml
