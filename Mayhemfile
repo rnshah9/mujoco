@@ -2,3 +2,4 @@ project: mujoco
 target: compile
 cmds:
   - cmd: /install/bin/compile @@ out.mjb
+    filepath: /test.xml
