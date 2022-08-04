@@ -226,6 +226,8 @@ mjui\_
 mjcb\_
    Global callback function pointer, for example :ref:`mjcb_control`. The user can install
    custom callbacks by setting these global pointers to user-defined functions.
+mjd\_
+   Functions for computing derivatives, for example :ref:`mjd_transitionFD`.
 
 .. _inOpenGL:
 
@@ -340,11 +342,11 @@ illustration of how the new UI framework is intended to be used. Below is a scre
 ..  youtube:: 0ORsj_E17B0
     :align: center
 
-Interaction is done with the mouse; see the built-in help for summary of available commands. Briefly, an object is
-selected by left-double-click. The user can then apply forces and torques on the selected object by holding Ctrl and
-dragging the mouse. Dragging the mouse alone (without Ctrl) moves the camera. There are keyboard shortcuts for pausing
-the simulation, resetting, and re-loading the model file. The latter functionality is very useful while editing the
-model in an XML editor.
+Interaction is done with the mouse; built-in help with a summary of available commands is available by pressing the 'F1'
+key. Briefly, an object is selected by left-double-click. The user can then apply forces and torques on the selected
+object by holding Ctrl and dragging the mouse. Dragging the mouse alone (without Ctrl) moves the camera. There are
+keyboard shortcuts for pausing the simulation, resetting, and re-loading the model file. The latter functionality is
+very useful while editing the model in an XML editor.
 
 The code is quite long yet reasonably commented, so it is best to just read it. Here we provide a high-level overview.
 The ``main()`` function initializes both MuJoCo and GLFW, opens a window, and install GLFW callbacks for mouse and

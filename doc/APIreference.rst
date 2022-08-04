@@ -403,6 +403,7 @@ mjtGain
    typedef enum _mjtGain
    {
        mjGAIN_FIXED        = 0,        // fixed gain
+       mjGAIN_AFFINE,                  // const + kp*length + kv*velocity
        mjGAIN_MUSCLE,                  // muscle FLV curve computed by mju_muscleGain()
        mjGAIN_USER                     // user-defined gain type
    } mjtGain;
@@ -1563,7 +1564,7 @@ mjModel
        int*      mesh_faceadr;         // first face address                       (nmesh x 1)
        int*      mesh_facenum;         // number of faces                          (nmesh x 1)
        int*      mesh_graphadr;        // graph data address; -1: no graph         (nmesh x 1)
-       float*    mesh_vert;            // vertex positions for all meshe           (nmeshvert x 3)
+       float*    mesh_vert;            // vertex positions for all meshes          (nmeshvert x 3)
        float*    mesh_normal;          // vertex normals for all meshes            (nmeshvert x 3)
        float*    mesh_texcoord;        // vertex texcoords for all meshes          (nmeshtexvert x 2)
        int*      mesh_face;            // triangle face data                       (nmeshface x 3)
@@ -1724,6 +1725,7 @@ mjModel
        mjtNum*   key_act;              // key activation                           (nkey x na)
        mjtNum*   key_mpos;             // key mocap position                       (nkey x 3*nmocap)
        mjtNum*   key_mquat;            // key mocap quaternion                     (nkey x 4*nmocap)
+       mjtNum*   key_ctrl;             // key control                              (nkey x nu)
 
        // names
        int*      name_bodyadr;         // body name pointers                       (nbody x 1)
@@ -2221,16 +2223,17 @@ mjvOption
 
 .. code-block:: C
 
-   struct _mjvOption                   // abstract visualization options
+   struct _mjvOption                      // abstract visualization options
    {
-       int      label;                 // what objects to label (mjtLabel)
-       int      frame;                 // which frame to show (mjtFrame)
-       mjtByte  geomgroup[mjNGROUP];   // geom visualization by group
-       mjtByte  sitegroup[mjNGROUP];   // site visualization by group
-       mjtByte  jointgroup[mjNGROUP];  // joint visualization by group
+       int      label;                    // what objects to label (mjtLabel)
+       int      frame;                    // which frame to show (mjtFrame)
+       mjtByte  geomgroup[mjNGROUP];      // geom visualization by group
+       mjtByte  sitegroup[mjNGROUP];      // site visualization by group
+       mjtByte  jointgroup[mjNGROUP];     // joint visualization by group
        mjtByte  tendongroup[mjNGROUP];    // tendon visualization by group
        mjtByte  actuatorgroup[mjNGROUP];  // actuator visualization by group
-       mjtByte  flags[mjNVISFLAG];     // visualization flags (indexed by mjtVisFlag)
+       mjtByte  skingroup[mjNGROUP];      // skin visualization by group
+       mjtByte  flags[mjNVISFLAG];        // visualization flags (indexed by mjtVisFlag)
    };
    typedef struct _mjvOption mjvOption;
 
@@ -4354,6 +4357,17 @@ mj_jacBodyCom
                       mjtNum* jacp, mjtNum* jacr, int body);
 
 Compute body center-of-mass end-effector Jacobian.
+
+.. _mj_jacSubtreeCom:
+
+mj_jacSubtreeCom
+~~~~~~~~~~~~~~~~
+
+.. code-block:: C
+
+   void mj_jacSubtreeCom(const mjModel* m, mjData* d, mjtNum* jacp, int body);
+
+Compute subtree center-of-mass end-effector Jacobian. ``jacp`` is 3 x nv.
 
 .. _mj_jacGeom:
 
@@ -6575,6 +6589,18 @@ mju_sigmoid
    mjtNum mju_sigmoid(mjtNum x);
 
 Sigmoid function over 0<=x<=1 constructed from half-quadratics.
+
+.. _mjd_transitionFD:
+
+mjd_transitionFD
+~~~~~~~~~~~~~~~~
+
+.. code-block:: C
+
+   void mjd_transitionFD(const mjModel* m, mjData* d, mjtNum eps, mjtByte centered, mjtNum* A, mjtNum* B);
+
+Finite differenced state-transition and control-transition matrices dx(t+h) = A*dx(t) + B*du(t). Required output matrix
+dimensions: A: (2*nv+na x 2*nv+na), B: (2*nv+na x nu).
 
 .. _Macros:
 

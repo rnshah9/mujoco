@@ -99,6 +99,7 @@ mjCModel::mjCModel() {
   inertiafromgeom = mjINERTIAFROMGEOM_AUTO;
   inertiagrouprange[0] = 0;
   inertiagrouprange[1] = mjNGROUP-1;
+  exactmeshinertia = false;
   mj_defaultLROpt(&LRopt);
 
   //------------------------ statistics override
@@ -1628,6 +1629,7 @@ void mjCModel::CopyObjects(mjModel* m) {
     // set fields
     m->skin_matid[i] = psk->matid;
     copyvec(m->skin_rgba+4*i, psk->rgba, 4);
+    m->skin_group[i] = psk->group;
     m->skin_inflate[i] = psk->inflate;
     m->skin_vertadr[i] = vert_adr;
     m->skin_vertnum[i] = psk->vert.size()/3;
@@ -1934,6 +1936,8 @@ void mjCModel::CopyObjects(mjModel* m) {
     for (j=0; j<nmocap; j++) {
       mju_normalize4(m->key_mquat+i*4*nmocap+4*j);
     }
+
+    copyvec(m->key_ctrl+i*nu, keys[i]->ctrl.data(), nu);
   }
 
   // save qpos0 in user model (to recognize changed key_qpos in write)
@@ -2876,6 +2880,9 @@ bool mjCModel::CopyBack(const mjModel* m) {
     if (nmocap) {
       copyvec(pk->mpos.data(), m->key_mpos + i*3*nmocap, 3*nmocap);
       copyvec(pk->mquat.data(), m->key_mquat + i*4*nmocap, 4*nmocap);
+    }
+    if (nu) {
+      copyvec(pk->ctrl.data(), m->key_ctrl + i*nu, nu);
     }
   }
 

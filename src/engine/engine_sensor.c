@@ -47,7 +47,7 @@ static void add_noise(const mjModel* m, mjData* d, mjtStage stage) {
 
       // real or positive: add noise directly, with clamp for positive
       if (m->sensor_datatype[i]==mjDATATYPE_REAL ||
-          m->sensor_datatype[i]==mjDATATYPE_POSITIVE)
+          m->sensor_datatype[i]==mjDATATYPE_POSITIVE) {
         for (int j=0; j<dim; j++) {
           // get random numbers; use only the first one
           rnd[0] = mju_standardNormal(rnd+1);
@@ -65,6 +65,7 @@ static void add_noise(const mjModel* m, mjData* d, mjtStage stage) {
             d->sensordata[adr+j] += rnd[0]*noise;
           }
         }
+      }
 
       // axis or quat: rotate around random axis by random angle
       else {
@@ -113,17 +114,17 @@ static void apply_cutoff(const mjModel* m, mjData* d, mjtStage stage) {
       mjtNum cutoff = m->sensor_cutoff[i];
 
       // process all dimensions
-      for (int j=0; j<dim; j++)
-
+      for (int j=0; j<dim; j++) {
         // real: apply on both sides
-        if (m->sensor_datatype[i]==mjDATATYPE_REAL)
-          d->sensordata[adr+j] =
-            mju_min(cutoff, mju_max(-cutoff, d->sensordata[adr+j]));
+        if (m->sensor_datatype[i]==mjDATATYPE_REAL) {
+          d->sensordata[adr+j] = mju_clip(d->sensordata[adr+j], -cutoff, cutoff);
+        }
 
         // positive: apply on positive side only
-        else if (m->sensor_datatype[i]==mjDATATYPE_POSITIVE)
-          d->sensordata[adr+j] =
-            mju_min(cutoff, d->sensordata[adr+j]);
+        else if (m->sensor_datatype[i]==mjDATATYPE_POSITIVE) {
+          d->sensordata[adr+j] = mju_min(cutoff, d->sensordata[adr+j]);
+        }
+      }
     }
   }
 }
@@ -310,6 +311,10 @@ void mj_sensorPos(const mjModel* m, mjData* d) {
 
       case mjSENS_SUBTREECOM:                             // subtreecom
         mju_copy3(d->sensordata+adr, d->subtree_com+3*objid);
+        break;
+
+      case mjSENS_CLOCK:                                  // clock
+        d->sensordata[adr] = d->time;
         break;
 
       case mjSENS_USER:                                   // user

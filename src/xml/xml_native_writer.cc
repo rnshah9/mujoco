@@ -125,6 +125,7 @@ void mjXWriter::OneSkin(XMLElement* elem, mjCSkin* pskin) {
   WriteAttrTxt(elem, "name", pskin->name);
   WriteAttrTxt(elem, "file", pskin->file);
   WriteAttrTxt(elem, "material", pskin->material);
+  WriteAttrInt(elem, "group", pskin->group, 0);
   WriteAttr(elem, "rgba", 4, pskin->rgba, mydef.geom.rgba);
   WriteAttr(elem, "inflate", 1, &pskin->inflate, &zero);
 
@@ -252,13 +253,14 @@ void mjXWriter::OneGeom(XMLElement* elem, mjCGeom* pgeom, mjCDef* def) {
       mjCMesh* pmesh = model->meshes[pgeom->meshid];
 
       // write pos/quat if there is a difference
-      if (!SameVector(pgeom->locpos, pmesh->pos, 3) ||
-          !SameVector(pgeom->locquat, pmesh->quat, 4)) {
+      if (!SameVector(pgeom->locpos, pmesh->GetPosPtr(pgeom->typeinertia), 3) ||
+          !SameVector(pgeom->locquat, pmesh->GetQuatPtr(pgeom->typeinertia), 4)) {
         // recover geom pos/quat before mesh frame transformation
         double p[3], q[4];
         mjuu_copyvec(p, pgeom->locpos, 3);
         mjuu_copyvec(q, pgeom->locquat, 4);
-        mjuu_frameaccuminv(p, q, pmesh->pos, pmesh->quat);
+        mjuu_frameaccuminv(p, q, pmesh->GetPosPtr(pgeom->typeinertia),
+                           pmesh->GetQuatPtr(pgeom->typeinertia));
 
         // write
         WriteAttr(elem, "pos", 3, p, unitq+1);
@@ -289,6 +291,9 @@ void mjXWriter::OneGeom(XMLElement* elem, mjCGeom* pgeom, mjCDef* def) {
   WriteAttr(elem, "margin", 1, &pgeom->margin, &def->geom.margin);
   WriteAttr(elem, "gap", 1, &pgeom->gap, &def->geom.gap);
   WriteAttr(elem, "gap", 1, &pgeom->gap, &def->geom.gap);
+  WriteAttrKey(elem, "fluidshape", fluid_map, 2, pgeom->fluid_switch, def->geom.fluid_switch);
+  WriteAttr(elem, "fluidcoef", 5, pgeom->fluid_coefs, def->geom.fluid_coefs);
+  WriteAttrKey(elem, "shellinertia", meshtype_map, 2, pgeom->typeinertia, def->geom.typeinertia);
   if (mjuu_defined(pgeom->_mass)) {
     double mass = pgeom->GetVolume() * def->geom.density;
     WriteAttr(elem, "mass", 1, &pgeom->mass, &mass);
@@ -549,6 +554,10 @@ void mjXWriter::OneActuator(XMLElement* elem, mjCActuator* pact, mjCDef* def) {
       WriteAttrTxt(elem, "site", pact->target);
       break;
 
+    case mjTRN_BODY:
+      WriteAttrTxt(elem, "body", pact->target);
+      break;
+
     default:        // SHOULD NOT OCCUR
       break;
     }
@@ -654,6 +663,7 @@ void mjXWriter::Compiler(XMLElement* root) {
   if (!model->usethread) {
     WriteAttrTxt(section, "usethread", "false");
   }
+  WriteAttrTxt(section, "exactmeshinertia", FindValue(bool_map, 2, model->exactmeshinertia));
 }
 
 
@@ -1540,6 +1550,11 @@ void mjXWriter::Sensor(XMLElement* root) {
       WriteAttrTxt(elem, "body", psen->objname);
       break;
 
+    // global sensors
+    case mjSENS_CLOCK:
+      elem = InsertEnd(section, "clock");
+      break;
+
     // user-defined sensor
     case mjSENS_USER:
       elem = InsertEnd(section, "user");
@@ -1658,6 +1673,15 @@ void mjXWriter::Keyframe(XMLElement* root) {
             break;
           }
         }
+      }
+    }
+
+    // check ctrl and write
+    for (int j=0; j<model->nu; j++) {
+      if (pk->ctrl[j]!=0) {
+        WriteAttr(elem, "ctrl", model->nu, pk->ctrl.data());
+        change = true;
+        break;
       }
     }
 

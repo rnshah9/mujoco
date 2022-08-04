@@ -15,6 +15,7 @@
 
 #include "engine/engine_io.h"
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,10 @@
 
 #ifdef _MSC_VER
   #pragma warning (disable: 4305)  // disable MSVC warning: truncation from 'double' to 'float'
+#endif
+
+#ifndef __has_builtin
+#define __has_builtin(x) 0
 #endif
 
 #define PTRDIFF(x, y) ((void*)(x) - (void*)(y))
@@ -351,6 +356,34 @@ static void mj_setPtrModel(mjModel* m) {
 }
 
 
+// increases buffer size without causing integer overflow, returns 0 if
+// operation would cause overflow
+// performs the following operations:
+// *nbuffer += SKIP(*offset) + type_size*nr*nc;
+// *offset += SKIP(*offset) + type_size*nr*nc;
+static int safeAddToBufferSize(intptr_t* offset, int* nbuffer, size_t type_size, int nr, int nc) {
+  if (type_size < 0 || nr < 0 || nc < 0) {
+    return 0;
+  }
+#if (__has_builtin(__builtin_add_overflow) && __has_builtin(__builtin_mul_overflow)) \
+    || (defined(__GNUC__) && __GNUC__ >= 5)
+  // supported by GCC and Clang
+  int to_add = 0;
+  if (__builtin_mul_overflow(nc, nr, &to_add)) return 0;
+  if (__builtin_mul_overflow(to_add, type_size, &to_add)) return 0;
+  if (__builtin_add_overflow(to_add, SKIP(*offset), &to_add)) return 0;
+  if (__builtin_add_overflow(*nbuffer, to_add, nbuffer)) return 0;
+  if (__builtin_add_overflow(*offset, to_add, offset)) return 0;
+#else
+  // TODO: offer a safe implementation for MSVC or other compilers that don't have the builtins
+  *nbuffer += SKIP(*offset) + type_size*nr*nc;
+  *offset += SKIP(*offset) + type_size*nr*nc;
+#endif
+
+  return 1;
+}
+
+
 
 // allocate and initialize mjModel structure
 mjModel* mj_makeModel(int nq, int nv, int nu, int na, int nbody, int njnt,
@@ -433,11 +466,28 @@ mjModel* mj_makeModel(int nq, int nv, int nu, int na, int nbody, int njnt,
   MJMODEL_INTS;
 #undef X
 
+  // nbody should always be positive
+  if (m->nbody == 0) {
+    mju_warning("Invalid model: nbody == 0");
+    mj_deleteModel(m);
+    return 0;
+  }
+
+  // nmocap is going to get multiplied by 4, and shouldn't overflow
+  if (m->nmocap >= INT_MAX / 4) {
+    mju_warning("Invalid model: nmocap too large");
+    mj_deleteModel(m);
+    return 0;
+  }
+
   // compute buffer size
   m->nbuffer = 0;
-#define X(type, name, nr, nc)                              \
-  m->nbuffer += SKIP(offset) + sizeof(type)*(m->nr)*(nc);  \
-  offset += SKIP(offset) + sizeof(type)*(m->nr)*(nc);
+#define X(type, name, nr, nc)                                                \
+  if (!safeAddToBufferSize(&offset, &m->nbuffer, sizeof(type), m->nr, nc)) { \
+    mju_warning("Invalid model: " #name " too large.");                      \
+    mj_deleteModel(m);                                                       \
+    return 0;                                                                \
+  }
 
   MJMODEL_POINTERS
 #undef X
@@ -485,9 +535,13 @@ mjModel* mj_copyModel(mjModel* dest, const mjModel* src) {
                         src->nuser_cam, src->nuser_tendon, src->nuser_actuator, src->nuser_sensor,
                         src->nnames);
   }
+  if (!dest) {
+    mju_error("Failed to make mjModel. Invalid sizes.");
+  }
 
   // check sizes
   if (dest->nbuffer != src->nbuffer) {
+    mj_deleteModel(dest);
     mju_error("dest and src models have different buffer size");
   }
 
@@ -649,7 +703,7 @@ mjModel* mj_loadModel(const char* filename, const mjVFS* vfs) {
                    info[28], info[29], info[30], info[31], info[32], info[33], info[34],
                    info[35], info[36], info[37], info[38], info[39], info[40], info[41],
                    info[42], info[43], info[44], info[45], info[46], info[47], info[48]);
-  if (m->nbuffer!=info[getnint()-1]) {
+  if (!m || m->nbuffer!=info[getnint()-1]) {
     if (fp) {
       fclose(fp);
     }
@@ -665,14 +719,17 @@ mjModel* mj_loadModel(const char* filename, const mjVFS* vfs) {
   if (fp) {
     if (fread((void*)&m->opt, sizeof(mjOption), 1, fp) != 1) {
       mju_warning("Model file does not have a complete mjOption");
+      mj_deleteModel(m);
       return 0;
     }
     if (fread((void*)&m->vis, sizeof(mjVisual), 1, fp) != 1) {
       mju_warning("Model file does not have a complete mjVisual");
+      mj_deleteModel(m);
       return 0;
     }
     if (fread((void*)&m->stat, sizeof(mjStatistic), 1, fp) != 1) {
       mju_warning("Model file does not have a complete mjStatistic");
+      mj_deleteModel(m);
       return 0;
     }
     {
@@ -680,6 +737,7 @@ mjModel* mj_loadModel(const char* filename, const mjVFS* vfs) {
       #define X(type, name, nr, nc)                                            \
         if (fread(m->name, sizeof(type), (m->nr)*(nc), fp) != (m->nr)*(nc)) {  \
           mju_warning("Model file does not contain a large enough buffer");    \
+          mj_deleteModel(m);                                                   \
           return 0;                                                            \
         }
       MJMODEL_POINTERS
@@ -791,9 +849,13 @@ static mjData* _makeData(const mjModel* m) {
 
   // compute buffer size
   d->nbuffer = 0;
-#define X(type, name, nr, nc)                              \
-  d->nbuffer += SKIP(offset) + sizeof(type)*(m->nr)*(nc);  \
-  offset += SKIP(offset) + sizeof(type)*(m->nr)*(nc);
+  d->buffer = d->stack = NULL;
+#define X(type, name, nr, nc)                                                \
+  if (!safeAddToBufferSize(&offset, &d->nbuffer, sizeof(type), m->nr, nc)) { \
+    mju_warning("Invalid data: " #name " too large.");                       \
+    mj_deleteData(d);                                                        \
+    return 0;                                                                \
+  }
 
   MJDATA_POINTERS
 #undef X
@@ -821,7 +883,9 @@ static mjData* _makeData(const mjModel* m) {
 
 mjData* mj_makeData(const mjModel* m) {
   mjData* d = _makeData(m);
-  mj_resetData(m, d);
+  if (d) {
+    mj_resetData(m, d);
+  }
   return d;
 }
 
@@ -1008,6 +1072,7 @@ void mj_resetDataKeyframe(const mjModel* m, mjData* d, int key) {
     mju_copy(d->act,  m->key_act+ key*m->na, m->na);
     mju_copy(d->mocap_pos,  m->key_mpos+key*3*m->nmocap, 3*m->nmocap);
     mju_copy(d->mocap_quat, m->key_mquat+key*4*m->nmocap, 4*m->nmocap);
+    mju_copy(d->ctrl, m->key_ctrl+key*m->nu, m->nu);
   }
 }
 
@@ -1044,6 +1109,7 @@ static int sensorSize(mjtSensor sensor_type, int nuser_sensor) {
   case mjSENS_TENDONLIMITPOS:
   case mjSENS_TENDONLIMITVEL:
   case mjSENS_TENDONLIMITFRC:
+  case mjSENS_CLOCK:
     return 1;
 
   case mjSENS_ACCELEROMETER:
@@ -1136,7 +1202,6 @@ static int numObjects(const mjModel* m, mjtObj objtype) {
 
 // validate reference fields in a model; return null if valid, error message otherwise
 const char* mj_validateReferences(const mjModel* m) {
-
   // for each field in mjModel that refers to another field, call X with:
   //   adrarray: array containing the references
   //   nadrs:    number of elements in refarray

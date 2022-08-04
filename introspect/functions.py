@@ -2010,6 +2010,36 @@ FUNCTIONS: Mapping[str, FunctionDecl] = dict([
          ),
          doc='Compute body center-of-mass end-effector Jacobian.',
      )),
+    ('mj_jacSubtreeCom',
+     FunctionDecl(
+         name='mj_jacSubtreeCom',
+         return_type=ValueType(name='void'),
+         parameters=(
+             FunctionParameterDecl(
+                 name='m',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjModel', is_const=True),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='d',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjData'),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='jacp',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjtNum'),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='body',
+                 type=ValueType(name='int'),
+             ),
+         ),
+         doc='Compute subtree center-of-mass end-effector Jacobian.',
+     )),
     ('mj_jacGeom',
      FunctionDecl(
          name='mj_jacGeom',
@@ -6573,6 +6603,26 @@ FUNCTIONS: Mapping[str, FunctionDecl] = dict([
          ),
          doc='Return max(a,b) with single evaluation of a and b.',
      )),
+    ('mju_clip',
+     FunctionDecl(
+         name='mju_clip',
+         return_type=ValueType(name='mjtNum'),
+         parameters=(
+             FunctionParameterDecl(
+                 name='x',
+                 type=ValueType(name='mjtNum'),
+             ),
+             FunctionParameterDecl(
+                 name='min',
+                 type=ValueType(name='mjtNum'),
+             ),
+             FunctionParameterDecl(
+                 name='max',
+                 type=ValueType(name='mjtNum'),
+             ),
+         ),
+         doc='Clip x to the range [min, max].',
+     )),
     ('mju_sign',
      FunctionDecl(
          name='mju_sign',
@@ -6872,5 +6922,45 @@ FUNCTIONS: Mapping[str, FunctionDecl] = dict([
              ),
          ),
          doc='Sigmoid function over 0<=x<=1 constructed from half-quadratics.',
+     )),
+    ('mjd_transitionFD',
+     FunctionDecl(
+         name='mjd_transitionFD',
+         return_type=ValueType(name='void'),
+         parameters=(
+             FunctionParameterDecl(
+                 name='m',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjModel', is_const=True),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='d',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjData'),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='eps',
+                 type=ValueType(name='mjtNum'),
+             ),
+             FunctionParameterDecl(
+                 name='centered',
+                 type=ValueType(name='mjtByte'),
+             ),
+             FunctionParameterDecl(
+                 name='A',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjtNum'),
+                 ),
+             ),
+             FunctionParameterDecl(
+                 name='B',
+                 type=PointerType(
+                     inner_type=ValueType(name='mjtNum'),
+                 ),
+             ),
+         ),
+         doc='Finite differenced state-transition and control-transition matrices dx(t+h) = A*dx(t) + B*du(t).   required output matrix dimensions:      A: (2*nv+na x 2*nv+na)      B: (2*nv+na x nu)',  # pylint: disable=line-too-long
      )),
 ])

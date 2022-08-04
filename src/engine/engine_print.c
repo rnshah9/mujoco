@@ -30,6 +30,10 @@
 #include "engine/engine_util_misc.h"
 #include "engine/engine_util_sparse.h"
 
+#ifdef MEMORY_SANITIZER
+  #include <sanitizer/msan_interface.h>
+#endif
+
 #define FLOAT_FORMAT "% -9.2g"
 #define FLOAT_FORMAT_MAX_LEN 20
 #define INT_FORMAT " %d"
@@ -220,7 +224,7 @@ void mj_printFormattedModel(const mjModel* m, const char* filename, const char* 
 
   // sizes
 #define X( name )                                 \
-  if(m->name) {                                   \
+  if (m->name) {                                  \
     fprintf(fp, NAME_FORMAT, #name);              \
     fprintf(fp, INT_FORMAT "\n", m->name);        \
   }
@@ -306,17 +310,23 @@ void mj_printFormattedModel(const mjModel* m, const char* filename, const char* 
   //   note that comparison is based on the integer address, not its value
   const int* object_class;
 
-#define X( type, name, num, sz )                                              \
-  if (&m->num == object_class && (strncmp(#name, "name_", 5)!=0) && sz) {     \
-    fprintf(fp, "  ");                                                        \
-    fprintf(fp, NAME_FORMAT, #name);                                          \
-    for (int j=0; j < sz; j++) {                                              \
-       ((strcmp(#type, "mjtNum") == 0) || (strcmp(#type, "float") == 0)) ?    \
-          (fprintf(fp, float_format, (mjtNum)m->name[sz*i+j]),                \
-           fprintf(fp, " ")) :                                                \
-          fprintf(fp, INT_FORMAT " ", (int)m->name[sz*i+j]);                  \
-    }                                                                         \
-    fprintf(fp, "\n");                                                        \
+#define X(type, name, num, sz)                                              \
+  if (&m->num == object_class && (strncmp(#name, "name_", 5) != 0) && sz) { \
+    const char* format = _Generic(*m->name,                                 \
+                                  double:  float_format,                    \
+                                  float:   float_format,                    \
+                                  int:     INT_FORMAT,                      \
+                                  mjtByte: INT_FORMAT,                      \
+                                  default: NULL);                           \
+    if (format) {                                                           \
+      fprintf(fp, "  ");                                                    \
+      fprintf(fp, NAME_FORMAT, #name);                                      \
+      for (int j = 0; j < sz; j++) {                                        \
+          fprintf(fp, format, m->name[sz * i + j]);                         \
+          fprintf(fp, " ");                                                 \
+      }                                                                     \
+      fprintf(fp, "\n");                                                    \
+    }                                                                       \
   }
 
   // bodies
@@ -582,7 +592,7 @@ void mj_printFormattedModel(const mjModel* m, const char* filename, const char* 
         k = 2;
       }
 
-    // print if nozero
+    // print if nonzero
     if (k==2) {
       fprintf(fp, "key_qvel%d   ", i);
       for (int j=0; j<m->nv; j++) {
@@ -655,6 +665,24 @@ void mj_printFormattedModel(const mjModel* m, const char* filename, const char* 
       fprintf(fp, "\n");
     }
 
+    // check ctrl for nonzero
+    for (int j=0; j<m->nu; j++) {
+      if (m->key_ctrl[i*m->nu + j]) {
+        k = 6;
+        break;
+      }
+    }
+
+    // print if nonzero
+    if (k==6) {
+      fprintf(fp, "key_ctrl%d   ", i);
+      for (int j=0; j<m->nu; j++) {
+        fprintf(fp, float_format, m->key_ctrl[i*m->nu + j]);
+      }
+      fprintf(fp, "\n");
+    }
+
+
     // new line if any data was written
     if (k) {
       fprintf(fp, "\n");
@@ -711,14 +739,28 @@ void mj_printFormattedData(const mjModel* m, mjData* d, const char* filename,
   // allocate full inertia
   M = mj_stackAlloc(d, m->nv*m->nv);
 
+#ifdef MEMORY_SANITIZER
+  // If memory sanitizer is active, d->buffer will be marked as poisoned, even
+  // though it's really initialized to 0. This catches unintentionally
+  // using uninitialized values, but in engine_print it's OK to output zeroes.
+
+  // save current poison status of buffer before marking unpoisoned
+  void* shadow = mju_malloc(d->nbuffer);
+  __msan_copy_shadow(shadow, d->buffer, d->nbuffer);
+  __msan_unpoison(d->buffer, d->nbuffer);
+#endif
   // ---------------------------------- print mjData fields
 
   fprintf(fp, "SIZES\n");
-#define X( type, name )                          \
-  if(strcmp(#type, "int")==0) {                  \
-    fprintf(fp, "  ");                           \
-    fprintf(fp, NAME_FORMAT, #name);             \
-    fprintf(fp, INT_FORMAT "\n", (int)d->name);  \
+#define X(type, name)                                                         \
+  {                                                                           \
+    const char* format = _Generic(d->name, int : INT_FORMAT, default : NULL); \
+    if (format) {                                                             \
+      fprintf(fp, "  ");                                                      \
+      fprintf(fp, NAME_FORMAT, #name);                                        \
+      fprintf(fp, format, d->name);                                           \
+      fprintf(fp, "\n");                                                      \
+    }                                                                         \
   }
 
   MJDATA_SCALAR
@@ -747,7 +789,7 @@ void mj_printFormattedData(const mjModel* m, mjData* d, const char* filename,
   if (active_timers) {
     fprintf(fp, "TIMER\n");
     for (int i=0; i<mjNTIMER; i++) {
-      fprintf(fp, "    %d:  duration = ",i);
+      fprintf(fp, "    %d:  duration = ", i);
       fprintf(fp, float_format, d->timer[i].duration);
       fprintf(fp, "   number = %d\n", d->timer[i].number);
     }
@@ -955,6 +997,12 @@ void mj_printFormattedData(const mjModel* m, mjData* d, const char* filename,
   printArray("CACC", m->nbody, 6, d->cacc, fp, float_format);
   printArray("CFRC_INT", m->nbody, 6, d->cfrc_int, fp, float_format);
   printArray("CFRC_EXT", m->nbody, 6, d->cfrc_ext, fp, float_format);
+
+#ifdef MEMORY_SANITIZER
+  // restore poisoned status
+  __msan_copy_shadow(d->buffer, shadow, d->nbuffer);
+  mju_free(shadow);
+#endif
 
   if (filename) {
     fclose(fp);

@@ -967,6 +967,7 @@ mjCGeom::mjCGeom(mjCModel* _model, mjCDef* _def) {
   rgba[0] = rgba[1] = rgba[2] = 0.5f;
   rgba[3] = 1.0f;
   userdata.clear();
+  typeinertia = mjVOLUME_MESH;
 
   // clear internal variables
   mjuu_setvec(quat, 1, 0, 0, 0);
@@ -1003,7 +1004,11 @@ double mjCGeom::GetVolume(void) {
     }
 
     mjCMesh* pmesh = model->meshes[meshid];
-    return pmesh->boxsz[0]*pmesh->boxsz[1]*pmesh->boxsz[2]*8;
+    if (model->exactmeshinertia) {
+      return pmesh->GetVolumeRef(typeinertia);
+    } else {
+      return pmesh->boxsz_volume[0]*pmesh->boxsz_volume[1]*pmesh->boxsz_volume[2]*8;
+    }
   }
 
   // compute from geom shape
@@ -1045,13 +1050,17 @@ void mjCGeom::SetInertia(void) {
     }
 
     mjCMesh* pmesh = model->meshes[meshid];
-    inertia[0] = mass*(pmesh->boxsz[1]*pmesh->boxsz[1] + pmesh->boxsz[2]*pmesh->boxsz[2]) / 3;
-    inertia[1] = mass*(pmesh->boxsz[0]*pmesh->boxsz[0] + pmesh->boxsz[2]*pmesh->boxsz[2]) / 3;
-    inertia[2] = mass*(pmesh->boxsz[0]*pmesh->boxsz[0] + pmesh->boxsz[1]*pmesh->boxsz[1]) / 3;
+    double* boxsz = pmesh->GetInertiaBoxPtr(typeinertia);
+    inertia[0] = mass*(boxsz[1]*boxsz[1] + boxsz[2]*boxsz[2]) / 3;
+    inertia[1] = mass*(boxsz[0]*boxsz[0] + boxsz[2]*boxsz[2]) / 3;
+    inertia[2] = mass*(boxsz[0]*boxsz[0] + boxsz[1]*boxsz[1]) / 3;
   }
 
   // compute from geom shape
   else {
+    if (typeinertia)
+      throw mjCError(this, "typeinertia currently only available for meshes'%s' (id = %d)",
+                     name.c_str(), id);
     switch (type) {
     case mjGEOM_SPHERE:
       inertia[0] = inertia[1] = inertia[2] = 2*mass*size[0]*size[0]/5;
@@ -1068,7 +1077,7 @@ void mjCGeom::SetInertia(void) {
       // add two hemispheres, displace along third axis
       double sphere_inertia = 2*sphere_mass*radius*radius/5;
       inertia[0] += sphere_inertia + sphere_mass*height*(3*radius + 2*height)/8;
-      inertia[1] += sphere_inertia + sphere_mass*height*(3*radius + 2*height)/8;;
+      inertia[1] += sphere_inertia + sphere_mass*height*(3*radius + 2*height)/8;
       inertia[2] += sphere_inertia;
       return;
     }
@@ -1354,11 +1363,11 @@ void mjCGeom::Compile(void) {
       mesh.clear();
       meshid = -1;
     } else {
-      mjuu_copyvec(meshpos, pmesh->pos, 3);
+      mjuu_copyvec(meshpos, pmesh->GetPosPtr(typeinertia), 3);
     }
 
     // apply geom pos/quat as offset
-    mjuu_frameaccum(pos, quat, meshpos, pmesh->quat);
+    mjuu_frameaccum(pos, quat, meshpos, pmesh->GetQuatPtr(typeinertia));
   }
 
   // check size parameters
@@ -3452,6 +3461,11 @@ void mjCActuator::Compile(void) {
     ptarget = model->FindObject(mjOBJ_SITE, target);
     break;
 
+  case mjTRN_BODY:
+    // get body
+    ptarget = model->FindObject(mjOBJ_BODY, target);
+    break;
+
   default:
     throw mjCError(this, "invalid transmission type in actuator '%s' (id = %d)", name.c_str(), id);
   }
@@ -3533,7 +3547,7 @@ void mjCSensor::Compile(void) {
 
     // get sensorized object id
     objid = pobj->id;
-  } else {
+  } else if (type != mjSENS_CLOCK) {
     throw mjCError(this, "invalid type in sensor '%s' (id = %d)", name.c_str(), id);
   }
 
@@ -3804,6 +3818,12 @@ void mjCSensor::Compile(void) {
     }
     break;
 
+  case mjSENS_CLOCK:
+    dim = 1;
+    needstage = mjSTAGE_POS;
+    datatype = mjDATATYPE_REAL;
+    break;
+
   case mjSENS_USER:
     // check for negative dim
     if (dim<0) {
@@ -3980,6 +4000,7 @@ mjCKey::mjCKey(mjCModel* _model) {
   act.clear();
   mpos.clear();
   mquat.clear();
+  ctrl.clear();
 }
 
 
@@ -3991,6 +4012,7 @@ mjCKey::~mjCKey() {
   act.clear();
   mpos.clear();
   mquat.clear();
+  ctrl.clear();
 }
 
 
@@ -4063,4 +4085,15 @@ void mjCKey::Compile(const mjModel* m) {
   } else if (mquat.size()!=4*m->nmocap) {
     throw mjCError(this, "key %d: invalid mquat size", 0, id);
   }
+
+  // ctrl: allocate or check size
+  if (ctrl.empty()) {
+    ctrl.resize(m->nu);
+    for (i=0; i<m->nu; i++) {
+      ctrl[i] = 0;
+    }
+  } else if (ctrl.size()!=m->nu) {
+    throw mjCError(this, "key %d: invalid ctrl size", 0, id);
+  }
+
 }

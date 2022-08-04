@@ -178,7 +178,6 @@ void mj_kinematics(const mjModel* m, mjData* d) {
 
 // map inertias and motion dofs to global frame centered at subtree-CoM
 void mj_comPos(const mjModel* m, mjData* d) {
-
   mjtNum offset[3], axis[3];
   mjMARKSTACK;
   mjtNum* mass_subtree = mj_stackAlloc(d, m->nbody);
@@ -538,7 +537,7 @@ void mj_tendon(const mjModel* m, mjData* d) {
       }
 
       // accumulate moments if consequtive points are in different bodies
-      for (int k=0; k<(wlen<0 ? 1:3); k++) {
+      for (int k=0; k<(wlen<0 ? 1 : 3); k++) {
         if (wbody[k]!=wbody[k+1]) {
           // get 3D position difference, normalize
           mju_sub3(dif, wpnt+3*k+3, wpnt+3*k);
@@ -786,8 +785,50 @@ void mj_transmission(const mjModel* m, mjData* d) {
       mju_addTo(moment+i*nv, jac, nv);                            // add the two
       break;
 
+    case mjTRN_BODY:                  // body (adhesive contacts)
+      // cannot compute meaningful length, set to 0
+      length[i] = 0;
+
+      // moment is average of all contact normal Jacobians
+      {
+        // find and count all relevant contacts, mark them in efc_force
+        int counter = 0;
+        mjtNum* efc_force = mj_stackAlloc(d, d->nefc);
+        mju_zero(efc_force, d->nefc);
+        for (int j=0; j<d->ncon; j++) {
+          const mjContact* con = d->contact+j;
+          if (m->geom_bodyid[con->geom1]==id || m->geom_bodyid[con->geom2]==id) {
+            if (!con->exclude) {
+              counter++;
+
+              // condim 1 or elliptic cones: normal is in the first row
+              if (con->dim == 1 || m->opt.cone==mjCONE_ELLIPTIC) {
+                efc_force[con->efc_address] = 1;
+              }
+
+              // pyramidal cones: average all pyramid directions
+              else {
+                int npyramid = con->dim-1;  // number of frictional directions
+                for (int k=0; k<2*npyramid; k++) {
+                  efc_force[con->efc_address+k] = 0.5/npyramid;
+                }
+              }
+            } else if (con->exclude == 1) {
+              //  TODO(b/240848298): compute Jacobians for excluded contact (in gap)
+            }
+          }
+        }
+
+        // moment is average over contact normal Jacobians, make negative for adhesion
+        if (counter) {
+          mj_mulJacTVec(m, d, moment+i*nv, efc_force);
+          mju_scl(moment+i*nv, moment+i*nv, -1.0/counter, nv);
+        }
+      }
+      break;
+
     default:
-      mju_error_i("Unknown transmission type %d", m->actuator_trntype[i]); // SHOULD NOT OCCUR
+      mju_error_i("Unknown transmission type %d", m->actuator_trntype[i]);  // SHOULD NOT OCCUR
     }
   }
 
@@ -855,20 +896,20 @@ void mj_crb(const mjModel* m, mjData* d) {
 
 
 
-// sparse L'*D*L factorizaton of the inertia matrix M, assumed spd
-void mj_factorM(const mjModel* m, mjData* d) {
+// sparse L'*D*L factorizaton of inertia-like matrix M, assumed spd
+void mj_factorI(const mjModel* m, mjData* d, const mjtNum* M, mjtNum* qLD, mjtNum* qLDiagInv,
+                mjtNum* qLDiagSqrtInv) {
   int cnt;
   int Madr_kk, Madr_ki;
   mjtNum tmp;
 
   // local copies of key variables
-  mjtNum* qLD = d->qLD;
   int* dof_Madr = m->dof_Madr;
   int* dof_parentid = m->dof_parentid;
   int nv = m->nv;
 
   // copy M into LD
-  mju_copy(d->qLD, d->qM, m->nM);
+  mju_copy(qLD, M, m->nM);
 
   // dense backward loop over dofs (regular only, simple diagonal already copied)
   for (int k=nv-1; k>=0; k--) {
@@ -912,9 +953,19 @@ void mj_factorM(const mjModel* m, mjData* d) {
 
   // compute 1/diag(D), 1/sqrt(diag(D))
   for (int i=0; i<nv; i++) {
-    d->qLDiagInv[i] = 1.0/qLD[dof_Madr[i]];
-    d->qLDiagSqrtInv[i] = 1.0/mju_sqrt(qLD[dof_Madr[i]]);
+    mjtNum qLDi = qLD[dof_Madr[i]];
+    qLDiagInv[i] = 1.0/qLDi;
+    if (qLDiagSqrtInv) {
+      qLDiagSqrtInv[i] = 1.0/mju_sqrt(qLDi);
+    }
   }
+}
+
+
+
+// sparse L'*D*L factorizaton of the inertia matrix M, assumed spd
+void mj_factorM(const mjModel* m, mjData* d) {
+  mj_factorI(m, d, d->qM, d->qLD, d->qLDiagInv, d->qLDiagSqrtInv);
 }
 
 
@@ -922,11 +973,11 @@ void mj_factorM(const mjModel* m, mjData* d) {
 // sparse backsubstitution:  x = inv(L'*D*L)*y
 //  L is in lower triangle of qLD; D is on diagonal of qLD
 //  handle n vectors at once
-void mj_solveM(const mjModel* m, mjData* d, mjtNum* x, const mjtNum* y, int n) {
+void mj_solveLD(const mjModel* m, mjtNum* x, const mjtNum* y, int n,
+                const mjtNum* qLD, const mjtNum* qLDiagInv) {
   mjtNum tmp;
 
   // local copies of key variables
-  mjtNum *qLD = d->qLD, *qLDiagInv = d->qLDiagInv;
   int* dof_Madr = m->dof_Madr;
   int* dof_parentid = m->dof_parentid;
   int nv = m->nv;
@@ -1035,6 +1086,14 @@ void mj_solveM(const mjModel* m, mjData* d, mjtNum* x, const mjtNum* y, int n) {
       }
     }
   }
+}
+
+
+
+// sparse backsubstitution:  x = inv(L'*D*L)*y
+//  use factorization in d
+void mj_solveM(const mjModel* m, mjData* d, mjtNum* x, const mjtNum* y, int n) {
+  mj_solveLD(m, x, y, n, d->qLD, d->qLDiagInv);
 }
 
 
@@ -1320,7 +1379,7 @@ void mj_subtreeVel(const mjModel* m, mjData* d) {
 
 //---------------------------------- fluid models --------------------------------------------------
 
-
+// fluid forces based on inertia-box approximation
 void mj_inertiaBoxFluidModel(const mjModel* m, mjData* d, int i) {
   mjtNum lvel[6], wind[6], lwind[6], lfrc[6], bfrc[6], box[3], diam, *inertia;
   inertia = m->body_inertia + 3*i;
@@ -1381,38 +1440,7 @@ void mj_inertiaBoxFluidModel(const mjModel* m, mjData* d, int i) {
 
 
 
-// all semi-axes of a geom
-static void geomSemiaxes(const mjModel* m, int geom_id, mjtNum semiaxes[3]) {
-  mjtNum* size = m->geom_size + 3*geom_id;
-  switch (m->geom_type[geom_id]) {
-  case mjGEOM_SPHERE:
-    semiaxes[0] = size[0];
-    semiaxes[1] = size[0];
-    semiaxes[2] = size[0];
-    break;
-
-  case mjGEOM_CAPSULE:
-    semiaxes[0] = size[0];
-    semiaxes[1] = size[0];
-    semiaxes[2] = size[1] + size[0];
-    break;
-
-  case mjGEOM_CYLINDER:
-    semiaxes[0] = size[0];
-    semiaxes[1] = size[0];
-    semiaxes[2] = size[1];
-    break;
-
-  default:
-    semiaxes[0] = size[0];
-    semiaxes[1] = size[1];
-    semiaxes[2] = size[2];
-  }
-}
-
-
-
-// fluid interaction forces based on ellipsoid approximation
+// fluid forces based on ellipsoid approximation
 void mj_ellipsoidFluidModel(const mjModel* m, mjData* d, int bodyid) {
   mjtNum lvel[6], wind[6], lwind[6], lfrc[6], bfrc[6];
   mjtNum geom_interaction_coef, magnus_lift_coef, kutta_lift_coef;
@@ -1422,7 +1450,7 @@ void mj_ellipsoidFluidModel(const mjModel* m, mjData* d, int bodyid) {
   for (int j=0; j<m->body_geomnum[bodyid]; j++) {
     const int geomid = m->body_geomadr[bodyid] + j;
 
-    geomSemiaxes(m, geomid, semiaxes);
+    mju_geomSemiAxes(m, geomid, semiaxes);
 
     readFluidGeomInteraction(
         m->geom_fluid + mjNFLUID*geomid, &geom_interaction_coef,
@@ -1442,9 +1470,9 @@ void mj_ellipsoidFluidModel(const mjModel* m, mjData* d, int bodyid) {
     mju_zero(wind, 6);
     mju_copy3(wind+3, m->opt.wind);
     mju_transformSpatial(lwind, wind, 0,
-                         d->geom_xpos + 3*geomid, // Frame of ref's origin.
+                         d->geom_xpos + 3*geomid,  // Frame of ref's origin.
                          d->subtree_com + 3*m->body_rootid[bodyid],
-                         d->geom_xmat + 9*geomid); // Frame of ref's orientation.
+                         d->geom_xmat + 9*geomid);  // Frame of ref's orientation.
 
     // subtract translational component from grom velocity
     mju_subFrom3(lvel+3, lwind+3);
@@ -1468,7 +1496,7 @@ void mj_ellipsoidFluidModel(const mjModel* m, mjData* d, int bodyid) {
 
     // apply force and torque to body com
     mj_applyFT(m, d, bfrc+3, bfrc,
-               d->geom_xpos + 3*geomid, // point where FT is generated
+               d->geom_xpos + 3*geomid,  // point where FT is generated
                bodyid, d->qfrc_passive);
   }
 }
@@ -1605,7 +1633,7 @@ void mj_viscousForces(
           A_proj*blunt_drag_coef + slender_drag_coef*(A_max - A_proj));
   const mjtNum drag_ang_coef =  // linear plus quadratic
       fluid_viscosity * lin_visc_torq_coef +
-      fluid_density * mju_norm3(mom_visc) * ang_drag_coef;
+      fluid_density * mju_norm3(mom_visc);
 
   local_force[0] -= drag_ang_coef * ang_vel[0];
   local_force[1] -= drag_ang_coef * ang_vel[1];
@@ -1811,7 +1839,6 @@ void mj_rnePostConstraint(const mjModel* m, mjData* d) {
 
       // body 1
       if ((k = m->eq_obj1id[id])) {
-
         // transform connect point on body1: local -> global
         mju_rotVecMat(pos, eq_data, d->xmat+9*k);
         mju_addTo3(pos, d->xpos+3*k);
@@ -1825,7 +1852,6 @@ void mj_rnePostConstraint(const mjModel* m, mjData* d) {
 
       // body 2
       if ((k = m->eq_obj2id[id])) {
-
         // transform connect point on body2: local -> global
         mju_rotVecMat(pos, eq_data + 3, d->xmat+9*k);
         mju_addTo3(pos, d->xpos+3*k);
@@ -1849,7 +1875,6 @@ void mj_rnePostConstraint(const mjModel* m, mjData* d) {
 
       // body 1
       if ((k = m->eq_obj1id[id])) {
-
         // transform weld point on body1: local -> global
         mju_rotVecMat(pos, eq_data, d->xmat+9*k);
         mju_addTo3(pos, d->xpos+3*k);
@@ -1863,7 +1888,6 @@ void mj_rnePostConstraint(const mjModel* m, mjData* d) {
 
       // body 2
       if ((k = m->eq_obj2id[id])) {
-
         // weld force on body2 is always applied at body root
         mju_copy3(pos, d->xpos+3*k);
 

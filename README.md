@@ -4,6 +4,9 @@
   <a href="https://github.com/deepmind/mujoco/actions/workflows/build.yml?query=branch%3Amain" alt="GitHub Actions">
     <img src="https://img.shields.io/github/workflow/status/deepmind/mujoco/build/main">
   </a>
+  <a href="https://github.com/deepmind/mujoco/blob/main/LICENSE" alt="License">
+    <img src="https://img.shields.io/github/license/deepmind/mujoco">
+  </a>
 </p>
 
 **MuJoCo** stands for **Mu**lti-**Jo**int dynamics with **Co**ntact. It is a
@@ -23,20 +26,38 @@ further exposes a large number of utility functions for computing physics-relate
 quantities. We also provide Python bindings and a plug-in for the [Unity]
 game engine.
 
-## Documentation
+## Installation
 
-MuJoCo's documentation is available at [mujoco.readthedocs.io], which serves
-webpages derived from the [documentation source files].
-
-## Releases
+### Prebuilt binaries
 
 Versioned releases are available as precompiled binaries from the GitHub
 [releases page], built for Linux (x86-64 and AArch64), Windows (x86-64 only),
 and macOS (universal). This is the recommended way to use the software.
 
-Users who wish to build MuJoCo from source, please consult the [build from
+### Building from source
+
+Users who wish to build MuJoCo from source should consult the [build from
 source] section of the documentation. However, please note that the commit at
 the tip of the `main` branch may be unstable.
+
+### Python (>= 3.7)
+
+The native Python bindings, which come pre-packaged with a copy of MuJoCo, can
+be installed from [PyPI] via:
+
+```bash
+pip install mujoco
+```
+
+Note that Pre-built Linux wheels target `manylinux2014`, see
+[here](https://github.com/pypa/manylinux) for compatible distributions. For more
+information such as building the bindings from source, see the [Python Bindings]
+section of the documentation.
+
+## Documentation
+
+MuJoCo's documentation is available at [mujoco.readthedocs.io], which serves
+webpages derived from the [documentation source files].
 
 ## Getting Started
 
@@ -75,25 +96,63 @@ Here are some guidelines for asking good questions:
    You can add comments to existing threads or start new ones. If you start a
    new thread and there are existing relevant threads, please link to them.
 
-2. Use a clear and descriptive title.
+2. Use a clear and specific title. Try to include keywords that will make your
+   question easy for other to find in the future.
 
 3. Introduce yourself and your project more generally.
 
    If your level of expertise is exceptional (either high or low), and it might
    be relevant to what we can assume you know, please state that as well.
 
-4. Make it easy for others to reproduce the problem or understand your question.
+4. Take a step back and tell us what you're trying to accomplish, if we
+   understand you goal we might suggest a different type of solution than the
+   one you are having problems with
 
-   If this requires a model, please include it. Short, minimal, pure XML models
-   (the preferred format) should be pasted inline. Longer XML models should be
-   attached as a `.txt` file (GitHub does not accept `.xml`) or in a `.zip`.
-   Models requiring binary assets (meshes, textures), should be attached as
-   `.zip` files. Please remember to make sure the included model is loadable
+5. Make it easy for others to reproduce the problem or understand your question.
+
+   If this requires a model, please include it. Try to make the model minimal:
+   remove elements that are unrelated to your question. Pure XML models should
+   be inlined. Models requiring binary assets (meshes, textures), should be
+   attached as a `.zip` file. Please make sure the included model is loadable
    before you attach it.
 
-5. Include an illustrative screenshot or video, if relevant.
+6. Include an illustrative screenshot or video, if relevant.
 
-6. Tell us which MuJoCo version and operating system you are using.
+7. Tell us how you are accessing MuJoCo (C API, Python bindings, etc.) and which
+   MuJoCo version and operating system you are using.
+
+## Related software
+MuJoCo forms the backbone of many environment packages, but these are too many
+to list here individually. Below we focus on bindings and converters.
+
+### Bindings
+
+These packages give users of various languages access to MuJoCo functionality:
+
+#### First-party bindings
+
+- [Python bindings](https://mujoco.readthedocs.io/en/latest/python.html)
+  - [dm_control](https://github.com/deepmind/dm_control), DeepMind's related
+  environment stack, includes [PyMJCF](https://github.com/deepmind/dm_control/blob/main/dm_control/mjcf/README.md),
+  a module for procedural manipulation of MuJoCo models.
+- [C# bindings and Unity plug-in](https://mujoco.readthedocs.io/en/latest/unity.html)
+
+#### Third-party bindings
+
+- **Swift**: [swift-mujoco](https://github.com/liuliu/swift-mujoco)
+- **Java**: [mujoco-java](https://github.com/CommonWealthRobotics/mujoco-java)
+- **Python**: [mujoco-py](https://github.com/openai/mujoco-py) (unmaintained)
+- **Julia**: [Lyceum](https://github.com/Lyceum/MuJoCo.jl) (unmaintained)
+
+
+### Converters
+
+- **OpenSim**: [O2MConverter](https://github.com/aikkala/O2MConverter) converts
+  openSIM models to MJCF.
+- **SDFormat**: [gz-mujoco](https://github.com/gazebosim/gz-mujoco/) is a
+  two-way SDFormat <-> MJCF conversion tool.
+- **OBJ**: [obj2mjcf](https://github.com/kevinzakka/obj2mjcf)
+  a script for converting composite OBJ files into a loadable MJCF model.
 
 ## Citation
 
@@ -137,3 +196,5 @@ This is not an officially supported Google product.
 [GitHub Issues]: https://github.com/deepmind/mujoco/issues
 [documentation source files]: https://github.com/deepmind/mujoco/tree/main/doc
 [mujoco.readthedocs.io]: https://mujoco.readthedocs.io
+[Python Bindings]: https://mujoco.readthedocs.io/en/latest/python.html#python-bindings
+[PyPI]: https://pypi.org/project/mujoco/

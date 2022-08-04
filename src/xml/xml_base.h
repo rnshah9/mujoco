@@ -46,6 +46,7 @@ extern const mjMap coordinate_map[];
 extern const mjMap angle_map[];
 extern const mjMap enable_map[];
 extern const mjMap bool_map[];
+extern const mjMap fluid_map[];
 extern const mjMap TFAuto_map[];
 extern const mjMap joint_map[];
 extern const mjMap geom_map[];
@@ -67,6 +68,7 @@ extern const mjMap gain_map[];
 extern const mjMap bias_map[];
 extern const mjMap stage_map[];
 extern const mjMap datatype_map[];
+extern const mjMap meshtype_map[];
 
 
 //---------------------------------- Base XML class ------------------------------------------------

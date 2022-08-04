@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 // header version; should match the library version as returned by mj_version()
-#define mjVERSION_HEADER 220
+#define mjVERSION_HEADER 221
 
 // needed to define size_t, fabs and log10
 #include "stdlib.h"
@@ -385,6 +385,9 @@ MJAPI void mj_jacBody(const mjModel* m, const mjData* d, mjtNum* jacp, mjtNum* j
 
 // Compute body center-of-mass end-effector Jacobian.
 MJAPI void mj_jacBodyCom(const mjModel* m, const mjData* d, mjtNum* jacp, mjtNum* jacr, int body);
+
+// Compute subtree center-of-mass end-effector Jacobian.
+MJAPI void mj_jacSubtreeCom(const mjModel* m, mjData* d, mjtNum* jacp, int body);
 
 // Compute geom end-effector Jacobian.
 MJAPI void mj_jacGeom(const mjModel* m, const mjData* d, mjtNum* jacp, mjtNum* jacr, int geom);
@@ -1000,7 +1003,7 @@ MJAPI int mju_cholUpdate(mjtNum* mat, mjtNum* x, int n, int flg_plus);
 MJAPI int mju_eig3(mjtNum eigval[3], mjtNum eigvec[9], mjtNum quat[4], const mjtNum mat[9]);
 
 
-//---------------------- Miscellaneous --------------------------------------------------
+//---------------------- Miscellaneous -------------------------------------------------------------
 
 // Muscle active force, prm = (range[2], force, scale, lmin, lmax, vmax, fpmax, fvmax).
 MJAPI mjtNum mju_muscleGain(mjtNum len, mjtNum vel, const mjtNum lengthrange[2],
@@ -1027,6 +1030,9 @@ MJAPI mjtNum mju_min(mjtNum a, mjtNum b);
 
 // Return max(a,b) with single evaluation of a and b.
 MJAPI mjtNum mju_max(mjtNum a, mjtNum b);
+
+// Clip x to the range [min, max].
+MJAPI mjtNum mju_clip(mjtNum x, mjtNum min, mjtNum max);
 
 // Return sign of x: +1, -1 or 0.
 MJAPI mjtNum mju_sign(mjtNum x);
@@ -1078,6 +1084,16 @@ MJAPI char* mju_strncpy(char *dst, const char *src, int n);
 
 // Sigmoid function over 0<=x<=1 constructed from half-quadratics.
 MJAPI mjtNum mju_sigmoid(mjtNum x);
+
+
+//---------------------- Derivatives ---------------------------------------------------------------
+
+// Finite differenced state-transition and control-transition matrices dx(t+h) = A*dx(t) + B*du(t).
+//   required output matrix dimensions:
+//      A: (2*nv+na x 2*nv+na)
+//      B: (2*nv+na x nu)
+MJAPI void mjd_transitionFD(const mjModel* m, mjData* d, mjtNum eps, mjtByte centered,
+                            mjtNum* A, mjtNum* B);
 
 
 #if defined(__cplusplus)
