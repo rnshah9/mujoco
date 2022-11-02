@@ -1,5 +1,5 @@
 project: mujoco
-target: compile
+target: mju_halton
 cmds:
-  - cmd: /install/bin/compile @@ out.mjb
-    filepath: /test.xml
+  - cmd: /fuzz_mju_halton
+    libfuzzer: true
